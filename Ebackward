@@ -1,0 +1,48 @@
+# EBACKWARD: Kalman smoothing for the backward portion of the forward-backward algorithm implemented in the expectation step.
+# @author: Anita Mehrotra
+# @source: A.Blocker, 2008, "An EM algorithm for the estimation of affine state-space systems with or without known inputs"
+# @date: December 11, 2013
+# @class: CS281, Advanced Machine Learning
+# @references: S Nemati, R Adams
+
+def Ebackward(z, u, F, B, H, Q, R, xs, Vs, Ks, Vtt):
+    T = len(z)
+    tt = T-1
+    
+    filt_x = xs
+    filt_V = Vs
+    I = 1 # identity if x 2-d
+    
+    xsmooth  = np.zeros(T) # xs are now going to be updated again! (going backwards) Pre-allocate mem
+    Vsmooth  = np.zeros(T)
+    Vtt = np.zeros(T)
+    J = np.zeros(T)
+    
+    xsmooth[tt]  = filt_x[tt]
+    Vsmooth[tt]  = filt_V[tt]
+    Vtt[tt] = (I - Ks[tt]*H) * F * filt_V[tt-1] # Ks from output of filter step above
+    
+    # iterate backwards
+    for t in xrange(tt-1, -1, -1):
+        
+        ut = np.array([u[t,0], u[t,1], u[t,2]])
+        zt = z[t]
+            
+        # compute intermediate steps
+        Jt = filt_V[t] * F * (1/init_Vs[t+1]) # init_Vs from output of filter step above; curr_Jt = J_t
+        
+        # compute smoothed xs and Vs using filtered vals
+        xsmooth[t] = filt_x[t] + Jt * (xsmooth[t+1] - F*filt_x[t] - np.dot(B,ut))
+        Vsmooth[t] = filt_V[t] + (Vsmooth[t+1] - init_Vs[t+1]) * Jt**2
+        
+        # store J; needed to update Vtt ####can speed this up by not storing J####
+        J[t] = Jt
+            
+    # update Vtt    
+    for t in xrange(tt-2, -1, -1):
+        Vtt[t] = filt_V[t] * J[t-1] + J[t] * (Vtt[t+1] - F*filt_V[t]) * J[t-1]
+    
+    Vtt[0] = NaN # because of the way I've defined Vtt in (*), Vtt(0) = V_0,-1 which doesn't exist
+        
+    othervals = [Vsmooth, Vtt]
+    return (xsmooth, othervals)
