@@ -1,4 +1,4 @@
-# ESMOOTH: Kalman filtering for the forward portion of the forward-backward algorithm implemented in the expectation step.
+# Eforward: Kalman filtering for the forward portion of the forward-backward algorithm implemented in the expectation step.
 # @author: Anita Mehrotra
 # @source: A.Blocker, 2008, "An EM algorithm for the estimation of affine state-space systems with or without known inputs"
 # @date: December 11, 2013
