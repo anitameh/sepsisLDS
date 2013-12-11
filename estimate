@@ -1,0 +1,17 @@
+# ESTIMATE: estimate future data points
+# @author: Anita Mehrotra
+# @source: A.Blocker, 2008, "An EM algorithm for the estimation of affine state-space systems with or without known inputs"
+# @date: December 11, 2013
+# @class: CS281, Advanced Machine Learning
+# @references: S Nemati, R Adams
+
+def estimate(LL, est_z, curr_z, F, B, H, Q, R):
+    #if Q = R = 0, do this:
+    for i in xrange(LL):
+        curr_x = curr_z/H
+        next_u = np.array([utest[i,0], utest[i,1], utest[i,2]])
+        next_x = F*curr_x + np.dot(B, next_u)
+        next_z = H*next_x
+        est_z.append(next_z)
+        curr_z = next_z
+    return est_z
