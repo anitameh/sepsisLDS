@@ -1,0 +1,169 @@
+# EMITERATE: implement EM to infer hidden states and learn params; still in progress
+# @author: Anita Mehrotra
+# @source: A.Blocker, 2008, "An EM algorithm for the estimation of affine state-space systems with or without known inputs"
+# @date: December 11, 2013
+# @class: CS281, Advanced Machine Learning
+# @references: S Nemati, R Adams
+
+def EMiterate(z, u, F, B, H, Q, R, xs, Vs, pi_x, var_x, Ks, init_Vs, Vtt):  
+    
+    loglik_old = 1
+    TOL = 1e-5
+    iterate = 1
+    maxiter = 1000
+    epsilon = 1e-6
+    converged = 0
+    loglik = []
+    Bs = []
+    
+    while iterate < 100:    
+        #print iterate
+        
+        #######
+        # 1. E-step = learn hidden states
+        
+        # 1(a). filter (forward)
+        xfilt, othervals = Eforward(z, u, F, B, H, Q, R, xs, Vs, pi_x, var_x, Ks, init_Vs)
+        Vfilt = othervals[0]
+        KT = othervals[1]
+        init_Vs = othervals[2]
+        
+        # 1(b). smooth (backward)
+        xsmooth, othervals = Ebackward(z, u, F, B, H, Q, R, xfilt, Vfilt, Ks, Vtt)
+        Vsmooth = othervals[0]
+        Vtt = othervals[1]
+    
+        #######
+        # 2. M-step = infer params
+        
+        # preliminary computation
+        xs = np.array(xsmooth) # outputs from E step
+        Vs = np.array(Vsmooth)
+        T = len(z)
+        
+        # Pt = E[x_t,x_t] and Ptt = E[x_t,x_t-1]
+        Pt  = []
+        Ptt = []
+        Vtt[0] = NaN
+        
+        for t in xrange(T):
+            p = Vs[t] + (xs[t])**2 
+            Pt.append(p)
+            
+            pp = Vtt[t] + xs[t]*xs[t-1]
+            Ptt.append(pp)
+        
+        # update rules using FOC
+        #A Note: Technically, the size of Vtt is T-1 (not T), which means Ptt should be size T-1 as well
+        Ptt = Ptt[1:]
+        
+        #######
+        # Bhat = coefficient matrix on input vector
+        #first term
+        xx = xs.reshape(T,1) #reshape for multiplication in next step
+        prod_firstA = xx*u
+        firstA = np.sum(prod_firstA[1:], axis=0)
+        
+        prod_firstB = xx[:T-1]*u[1:] #multiply x_t-1 by u_t from t=1 to T
+        firstB = sum(Ptt[1:]) * (1/sum(Pt[1:])) * np.sum(prod_firstB, axis=0)
+        
+        first = firstA - firstB
+        
+        #second term
+        prod_secondA = u*u
+        secondA = np.sum(prod_secondA[1:], axis=0)
+        
+        prod_secondB1 = u[1:]*xx[:T-1]
+        prod_secondB2 = xx[:T-1]*u[1:]
+        secondB = np.sum(prod_secondB1, axis=0) * (1/sum(Pt[1:])) * np.sum(prod_secondB2, axis=0)
+        
+        second = secondA - secondB
+        
+        Bhat = first * (1/(second))
+        Bhat = np.nan_to_num(Bhat) #replace NaN with 0's if they exist
+        
+        #######
+        # Fhat = coefficient on lag hidden state
+        Fsum = np.sum(prod_secondB2[1:], axis=0)
+        Fhat = (np.nansum(Ptt[1:]) - np.dot(Bhat, Fsum)) * (1/np.nansum(Pt[1:]))
+        
+        #######
+        # Qhat = noise of input vector
+        Qprod = u*xx
+        Qsum = np.sum(Qprod[1:], axis=0)
+        
+        Qhat = (1/(T-1)) * (sum(Pt[1:]) - sum(Fhat*Ptt[1:]) - np.dot(Bhat,Qsum))
+        
+        #######
+        #Hhat = coefficient on current hidden state
+        firstH = sum(z*xx)
+        secondH = sum(Pt)
+        
+        Hhat = firstH * (1/secondH)
+        
+        #######
+        #Rhat = noise of hidden state
+        zz = z.reshape(T,1)
+        Rhat = (1/T) * (sum(z*zz) - Hhat*sum((z*xs)))
+        
+        #######
+        # 3. Compute log likelihood
+        
+        #LL = 0
+        V0 = Vs[0]
+        x0 = xs[0]
+        
+        term1 = 0
+        for i in range(1,T):
+            ut = np.array([u[i,0], u[i,1], u[i,2]])
+            first1 = 1/Qhat
+            first1 = np.nan_to_num(first1)
+            term1 += first1*(xfilt[i] - Fhat*xfilt[i-1] - np.dot(Bhat,ut))**2 + T*np.log(abs(Qhat))
+        
+        term2 = 0
+        for j in range(T):
+            first2 = 1/Rhat
+            first2 = np.nan_to_num(first2)
+            term2 += first2*(z[i] - Hhat*xfilt[i])**2 + (T-1)*np.log(abs(Rhat))
+        
+        V0 = Vs[1]
+        x0 = xs[1]
+        term3 = V0 * (x0 - pi_x)**2 + np.log(abs(V0)) + (2*t - 1)*np.log(abs(V0))
+        
+        # if terms are NaN or Inf, make them 0
+        if np.isinf(term1) == True:
+            term1 = 0
+        if np.isnan(term1) == True:
+            term1 = 0
+        if np.isinf(term2) == True:
+            term2 = 0
+        if np.isnan(term2) == True:
+            term2 = 0
+        if np.isinf(term3) == True:
+            term3 = 0
+        if np.isnan(term3) == True:
+            term3 = 0
+        
+        loglik_curr = -0.5*np.log(2*pi) - 0.5 * (term1 + term2 + term3)
+        
+        # update vals
+        xs = list(xs)
+        Vs = list(Vs)
+        Ks = list(Ks)
+        init_Vs = list(init_Vs)
+        
+        # store Bhat for plotting/debugging
+        Bs.append(Bhat)
+        
+        F = Fhat
+        B = Bhat
+        H = Hhat
+        Q = Qhat
+        R = Rhat
+        
+        iterate += 1
+        loglik.append(loglik_curr)
+        loglik_old = loglik_curr
+    
+    params = [F, B, H, Q, R]
+    return (params, loglik)
